@@ -1,0 +1,44 @@
+import os
+import pandas as pd
+import numpy as np
+
+# Define the directory containing the .plt files
+data_dir = 'C:/Users/farha/dataset1/'
+
+# Define the distance threshold
+threshold = 0.1 # in kilometers
+
+# Initialize the stay point list
+stay_points = []
+
+# Loop through all the .plt files in the directory
+for filename in os.listdir(data_dir):
+    if filename.endswith('.plt'):
+        # Load the trajectory data
+        filepath = os.path.join(data_dir, filename)
+        df = pd.read_csv(filepath, header=None, skiprows=6, names=['latitude', 'longitude', '0', 'altitude', 'date', 'time'])
+        
+        # Calculate the distance between consecutive points
+        df['distance'] = np.sqrt((df['latitude'].diff()**2) + (df['longitude'].diff()**2))
+
+        # Initialize the stay point list for this file
+        file_stay_points = []
+
+        # Loop through the trajectory data and identify stay points
+        start_idx = None
+        for idx, row in df.iterrows():
+            if row['distance'] < threshold:
+                if start_idx is None:
+                    # Start a new stay point
+                    start_idx = idx
+            else:
+                if start_idx is not None:
+                    # End the current stay point
+                    file_stay_points.append((start_idx, idx-1))
+                    start_idx = None
+        
+        # Add the stay points for this file to the global stay point list
+        stay_points += file_stay_points
+
+# Print the identified stay points
+print(stay_points)
