@@ -1,0 +1,57 @@
+import os
+import pandas as pd
+import math
+from datetime import datetime, timedelta
+from geopy.distance import geodesic
+
+def read_file(file_path):
+    with open(file_path, 'r') as f:
+        lines = f.readlines()[6:]
+    data = [[float(x) for x in line.strip().split(',')] for line in lines]
+    return pd.DataFrame(data, columns=['lat', 'lon', '0', 'alt', 'date', 'time'])
+
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371.0  # Earth radius in km
+    dLat = math.radians(lat2 - lat1)
+    dLon = math.radians(lon2 - lon1)
+    lat1 = math.radians(lat1)
+    lat2 = math.radians(lat2)
+    a = math.sin(dLat / 2) * math.sin(dLat / 2) + math.sin(dLon / 2) * math.sin(dLon / 2) * math.cos(lat1) * math.cos(lat2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c * 1000  # Return distance in meters
+
+def identify_stay_points(df, dist_thres=0.1, time_thres=1):
+    stay_points = []
+    i = 0
+    while i < len(df)-1:
+        j = i + 1
+        while j < len(df) and (df.iloc[j]['date'] == df.iloc[i]['date']):
+            dist = haversine(df.iloc[i]['lat'], df.iloc[i]['lon'], df.iloc[j]['lat'], df.iloc[j]['lon'])
+            time_diff = datetime.strptime(df.iloc[j]['time'], '%H:%M:%S') - datetime.strptime(df.iloc[i]['time'], '%H:%M:%S')
+            if dist <= dist_thres and time_diff.total_seconds() <= time_thres*60:
+                j += 1
+            else:
+                if j - i > 1:
+                    stay_points.append((df.iloc[i]['lat'], df.iloc[i]['lon'], df.iloc[i]['date'] + ' ' + df.iloc[i]['time'], df.iloc[j-1]['date'] + ' ' + df.iloc[j-1]['time']))
+                i = j
+                break
+        if j == len(df):
+            if j - i > 1:
+                stay_points.append((df.iloc[i]['lat'], df.iloc[i]['lon'], df.iloc[i]['date'] + ' ' + df.iloc[i]['time'], df.iloc[j-1]['date'] + ' ' + df.iloc[j-1]['time']))
+            break
+    return stay_points
+
+dataset_dir = 'C:/Users/farha/dataset1/'
+stay_points = []
+
+for user_dir in os.listdir(dataset_dir):
+    if user_dir.startswith('00'):
+        user_path = os.path.join(dataset_dir, user_dir)
+        for plt_file in os.listdir(user_path):
+            if plt_file.endswith('.plt'):
+                plt_path = os.path.join(user_path, plt_file)
+                df = read_file(plt_path)
+                sp = identify_stay_points(df)
+                stay_points.extend(sp)
+
+print(stay_points)
