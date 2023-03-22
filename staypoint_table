@@ -1,0 +1,108 @@
+import mysql.connector
+conn = mysql.connector.connect(user='root', password='',
+                           host='localhost', database='semtraclus')
+print(conn)
+
+import os
+import glob
+from datetime import datetime
+import folium
+from folium.plugins import MarkerCluster
+stay_points = []
+def read_file(file_path):
+    with open(file_path, 'r') as f:
+        lines = f.readlines()[6:] # Skip the first 6 lines
+        points = []
+        for line in lines:
+            lat, lon, _, _, _, _, timestamp = line.strip().split(',')
+            timestamp = datetime.strptime(timestamp, '%H:%M:%S') # convert timestamp to datetime object
+            points.append((float(lat), float(lon),timestamp))
+
+        return points
+
+def manhattan_distance(p1, p2):
+    return abs(p1[0] - p2[0]) + abs(p1[1] - p2[1])
+
+def find_stay_points(file_path, threshold_distance, min_duration):
+    points = read_file(file_path)
+    stay_points = []
+    current_stay_point = []
+    for i in range(1, len(points)):
+        dist = manhattan_distance(points[i][:2], points[i-1][:2])
+        if dist <= threshold_distance:
+            current_stay_point.append(points[i])
+        else:
+            if len(current_stay_point) > 0:
+                # Check if the current stay point satisfies the minimum duration requirement
+                duration = current_stay_point[-1][2] - current_stay_point[0][2]
+                if duration.total_seconds() >= min_duration:
+                    start_time = current_stay_point[0][2].strftime('%H:%M:%S')
+                    end_time = current_stay_point[-1][2].strftime('%H:%M:%S')
+                    stay_points.append((current_stay_point[0][:2], current_stay_point[-1][:2], duration.total_seconds(), start_time, end_time))
+                current_stay_point = []
+    return stay_points
+
+
+if __name__ == '__main__':
+    # Directory containing the .plt files
+    directory = 'C:/Users/farha/dataset1/'
+    # Threshold distance for defining a stay point
+    threshold_distance = 0.005 # in degrees (approx. 555 meters)
+    # Minimum duration for a stay point
+    min_duration = 300 # in number of points
+    
+    all_stay_points = []
+    # Initialize a folium Map object centered at the first point in the first file
+    
+    file_path = glob.glob(os.path.join(directory, '*.plt'))[0]
+    points = read_file(file_path)
+    m = folium.Map(location=[points[0][0], points[0][1]], zoom_start=12)
+    
+    
+    # Loop through all .plt files in the directory and find stay points
+    for file_path in glob.glob(os.path.join(directory, '*.plt')):
+        stay_points = find_stay_points(file_path, threshold_distance, min_duration)
+        for i, point in enumerate(stay_points):
+            all_stay_points += (point,)
+            #print(f'All stay points: {all_stay_points}')
+       # print(f'Stay points in {file_path}:')
+        for i, point in enumerate(stay_points):
+            print(f'Stay points in {file_path}:')
+            print(f'Stay point {i+1}: Latitude={point[0][0]}, Longitude={point[0][1]}, Duration={point[2]} seconds')
+            folium.Marker(location=[point[0][0], point[0][1]], popup=f"Start time: {point[3]}, End time: {point[4]}").add_to(m)
+    # Create a marker cluster
+    marker_cluster = MarkerCluster().add_to(m)
+    # Display the map
+    display(m)
+
+cursor = conn.cursor()
+
+# create a table for the stay points
+table_name = 'staypoints'
+create_table_query = f"""CREATE TABLE IF NOT EXISTS {table_name} (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        location POINT NOT NULL,
+                        duration INT,
+                        loc_id VARCHAR(20)
+                        );"""
+cursor.execute(create_table_query)
+
+# insert the stay points into the table
+insert_query = f"""INSERT INTO {table_name} (location, duration, loc_id) 
+                    VALUES (ST_PointFromText(%s), %s, %s)"""
+
+for i, point in enumerate(all_stay_points):
+    loc_id = f"{point[0][0]:.6f}{point[0][1]:.6f}"
+    data = (f'POINT({point[0][1]} {point[0][0]})', point[2], loc_id)
+    cursor.execute(insert_query, data)
+
+# retrieve and print the results
+cursor.execute("SELECT id,ST_AsText(location),duration,loc_id FROM staypoints")
+rows = cursor.fetchall()
+for row in rows:
+    print(row)
+
+# commit the changes and close the connection
+conn.commit()
+conn.close()
+
